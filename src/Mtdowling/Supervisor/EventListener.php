@@ -29,14 +29,20 @@ class EventListener
      */
     protected $errorStream;
 
+    /** @var array|EventHandler[] */
+    protected $eventHandlers;
+
     /**
      * Create a new EventListener
+     *
+     * @param array|EventHandler[] $eventHandlers
      */
-    public function __construct()
+    public function __construct(array $eventHandlers = [])
     {
         $this->inputStream = STDIN;
         $this->outputStream = STDOUT;
         $this->errorStream = STDERR;
+        $this->eventHandlers = $eventHandlers;
     }
 
     /**
@@ -82,33 +88,53 @@ class EventListener
     }
 
     /**
+     * @param EventHandler|Closure|callable $eventHandler
+     *
+     * @return $this
+     */
+    public function addEventHandler(EventHandler $eventHandler)
+    {
+        $this->eventHandlers[] = $eventHandler;
+
+        return $this;
+    }
+
+    /**
      * Poll stdin for Supervisord notifications and dispatch notifications to
      * the callback function which should accept this object (EventListener) as
      * its first parameter and an EventNotification as its second.  The callback
      * should return TRUE if it was successful, FALSE on failure, or 'quit' to
      * break from the event listener loop.
      *
-     * @param Closure|array Closure callback
+     * @param callable|Closure Closure callback
      */
-    public function listen($callback)
+    public function listen($callback = null)
     {
+        if ($callback) {
+            $this->addEventHandler(new CallableEventHandler($callback));
+        }
+
         $this->sendReady();
 
         while (true) {
             if (!$input = trim($this->readLine())) {
                 continue;
             }
-            $headers = EventNotification::parseData($input);
-            $payload = fread($this->inputStream, (int) $headers['len']);
-            $notification = new EventNotification($input, $payload, $headers);
-            $result = call_user_func($callback, $this, $notification);
+
+            $notification = $this->parseNotification($input);
+
+            $result = $this->notifyEventHandlers($notification);
+
             if (true === $result) {
                 $this->sendComplete();
-            } else if (false === $result) {
+            }
+            elseif (false === $result) {
                 $this->sendFail();
-            } else if ($result == 'quit') {
+            }
+            elseif ($result == 'quit') {
                 break;
             }
+
             $this->sendReady();
         }
     }
@@ -134,7 +160,8 @@ class EventListener
     }
 
     /**
-     * Send an ACKNOWLEDGED state to Supervisord
+     * Send an ACKNOWLEDGED state to Supervisord. The event listener
+     * has acknowledged (accepted or rejected) an event send.
      */
     public function sendAcknowledged()
     {
@@ -142,7 +169,8 @@ class EventListener
     }
 
     /**
-     * Send a BUSY state to Supervisord
+     * Send a BUSY state to Supervisord. Event notifications
+     * may not be sent to this event listener.
      */
     public function sendBusy()
     {
@@ -166,10 +194,43 @@ class EventListener
     }
 
     /**
-     * Send a READY state to Supervisord
+     * Send a READY state to Supervisord. Event notificatons
+     * may be sent to this event listener
      */
     public function sendReady()
     {
         fwrite($this->outputStream, self::READY . "\n");
+    }
+
+    /**
+     * @param $input
+     *
+     * @return EventNotification
+     */
+    protected function parseNotification($input)
+    {
+        $headers = EventNotification::parseData($input);
+
+        $payload = fread($this->inputStream, (int)$headers['len']);
+
+        return new EventNotification($input, $payload, $headers);
+    }
+
+    /**
+     * @param $notification
+     *
+     * @return mixed
+     */
+    protected function notifyEventHandlers($notification)
+    {
+        foreach ($this->eventHandlers as $handler) {
+            $result = $handler->handleEvent($notification, $this);
+
+            if ($result !== true) {
+                break;
+            }
+        }
+
+        return $result;
     }
 }
