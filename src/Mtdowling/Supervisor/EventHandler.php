@@ -13,5 +13,10 @@ interface EventHandler
      */
     public function handleEvent(EventNotification $event, EventListener $eventListener);
 
-    public function getEventSubscriptions();
+    /**
+     * @param EventNotification $event
+     *
+     * @return bool
+     */
+    public function isHandlingEvent(EventNotification $event);
 }

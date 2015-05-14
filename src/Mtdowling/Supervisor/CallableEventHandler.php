@@ -19,4 +19,9 @@ class CallableEventHandler implements EventHandler
     {
         return $this->callable($eventListener, $event);
     }
+
+    public function isHandlingEvent(EventNotification $event)
+    {
+        return true; // Handles all events
+    }
 }

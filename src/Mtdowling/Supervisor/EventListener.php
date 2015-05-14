@@ -217,13 +217,19 @@ class EventListener
     }
 
     /**
-     * @param $notification
+     * @param EventNotification $notification
      *
      * @return mixed
      */
-    protected function notifyEventHandlers($notification)
+    protected function notifyEventHandlers(EventNotification $notification)
     {
+        $result = true;
+
         foreach ($this->eventHandlers as $handler) {
+            if ( ! $handler->isHandlingEvent($notification)) {
+                continue;
+            }
+
             $result = $handler->handleEvent($notification, $this);
 
             if ($result !== true) {
